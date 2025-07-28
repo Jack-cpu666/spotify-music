@@ -1,15 +1,14 @@
 import os
-from flask import Flask, redirect, url_for, request, session, jsonify, render_template_string
+from flask import Flask, jsonify, request, render_template_string
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from pytube import Search
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
 
 # Hardcoded credentials
-CLIENT_ID = '4d4dcb88bbb604f72b999ac7d64697911b'
+CLIENT_ID = '4d4dcb88bb6047f2b999ac7d6497811b'
 CLIENT_SECRET = '6f66d094c8234bb4ac4f95078b40dd48'
-REDIRECT_URI = 'https://spotify-music-x7iv.onrender.com/callback'  # Not used since no user auth
 
 # Use Client Credentials for search (no user login needed)
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=CLIENT_ID, client_secret=CLIENT_SECRET))
@@ -21,15 +20,15 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>StreamBeatz Spotify Integration</title>
+        <title>StreamBeatz Spotify Integration with Full Playback</title>
     </head>
     <body>
-        <h1>Spotify Song Search and Preview Player</h1>
-        <p>Note: Due to Spotify's restrictions, only 30-second previews can be played without a Premium account. Full playback requires individual users to have Spotify Premium and authenticate, but as per your request to allow everyone without Premium, we've implemented preview playback which works for all visitors without login.</p>
+        <h1>Spotify Song Search and Full Player</h1>
+        <p>Note: Searches use Spotify API. Full playback is provided via YouTube embeds (legal way around Spotify's Premium restriction for API playback). This allows anyone to play full tracks without Spotify Premium.</p>
         <input type="text" id="searchInput" placeholder="Search for a song">
         <button onclick="searchSongs()">Search</button>
         <div id="results"></div>
-        <audio id="audioPlayer" controls></audio>
+        <div id="player" style="margin-top: 20px;"></div>
         
         <script>
             function searchSongs() {
@@ -43,21 +42,25 @@ def index():
                         let trackDiv = document.createElement('div');
                         trackDiv.innerText = track.name + ' - ' + track.artists[0].name;
                         trackDiv.style.cursor = 'pointer';
-                        trackDiv.onclick = () => playPreview(track.preview_url);
+                        trackDiv.onclick = () => playTrack(track.name, track.artists[0].name);
                         resultsDiv.appendChild(trackDiv);
                     });
                 })
                 .catch(error => console.error('Search error:', error));
             }
 
-            function playPreview(url) {
-                if (!url) {
-                    alert('No preview available for this track.');
-                    return;
-                }
-                let player = document.getElementById('audioPlayer');
-                player.src = url;
-                player.play();
+            function playTrack(name, artist) {
+                fetch('/get_youtube?url=' + encodeURIComponent(name + ' ' + artist + ' official audio'))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.video_id) {
+                        let playerDiv = document.getElementById('player');
+                        playerDiv.innerHTML = `<iframe width="560" height="315" src="https://www.youtube.com/embed/${data.video_id}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                    } else {
+                        alert('No YouTube video found.');
+                    }
+                })
+                .catch(error => console.error('YouTube search error:', error));
             }
         </script>
     </body>
@@ -77,6 +80,21 @@ def search():
         'preview_url': item['preview_url']
     } for item in results['tracks']['items']]
     return jsonify(tracks)
+
+@app.route('/get_youtube')
+def get_youtube():
+    query = request.args.get('url')
+    if not query:
+        return jsonify({'error': 'No query'}), 400
+    try:
+        s = Search(query)
+        if s.results:
+            video_id = s.results[0].video_id
+            return jsonify({'video_id': video_id})
+        else:
+            return jsonify({'video_id': None})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
